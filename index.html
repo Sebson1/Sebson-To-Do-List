@@ -1,0 +1,393 @@
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced To-Do List</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- EXPORT LIBRARIES -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .task-item {
+            border-left-width: 4px;
+        }
+        .task-item.completed .task-text {
+            text-decoration: line-through;
+            color: #9CA3AF;
+        }
+        .task-item.completed .complete-btn {
+            background-color: #10B981;
+            border-color: #10B981;
+        }
+        .task-item.completed .complete-btn::after {
+            content: '✔';
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .delete-btn {
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out;
+        }
+        .task-item:hover .delete-btn {
+            opacity: 1;
+        }
+        .date-meta {
+            font-size: 0.75rem;
+            color: #6B7280;
+        }
+        .deadline-overdue {
+            color: #EF4444;
+            font-weight: 500;
+        }
+        .priority-high { border-left-color: #EF4444; }
+        .priority-medium { border-left-color: #F59E0B; }
+        .priority-low { border-left-color: #3B82F6; }
+        
+        #image-preview-modal {
+            background-color: rgba(0,0,0,0.7);
+        }
+
+        #undo-toast {
+            transition: transform 0.5s ease-in-out, opacity 0.5s ease-in-out;
+        }
+
+        @media print {
+            body {
+                background: none;
+            }
+            body * {
+                visibility: hidden;
+            }
+            #task-list-container, #task-list-container *, #history-container, #history-container * {
+                visibility: visible;
+            }
+            #task-list-container, #history-container {
+                position: relative;
+                width: 100%;
+                box-shadow: none;
+            }
+            .delete-btn, .complete-btn, .export-controls, .task-form-container, .image-icon, .main-header {
+                display: none;
+            }
+            .task-item {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <div class="min-h-screen flex flex-col items-center justify-start p-4 pt-8 sm:pt-12">
+        <div class="w-full max-w-2xl">
+            <header class="main-header text-center mb-6 flex flex-col items-center">
+                <h1 class="text-4xl sm:text-5xl font-bold text-gray-800">My To-Do List</h1>
+                <p id="date-display" class="text-gray-600 mt-2"></p>
+            </header>
+
+            <div id="export-controls" class="flex flex-wrap justify-center items-center gap-2 mb-6 p-2 bg-white/50 backdrop-blur-sm border border-gray-200 rounded-lg">
+                 <button id="print-btn" class="flex-1 text-sm text-gray-700 font-medium py-2 px-3 rounded-md hover:bg-gray-200 transition-colors">🖨️ Print</button>
+                 <button id="pdf-btn" class="flex-1 text-sm text-gray-700 font-medium py-2 px-3 rounded-md hover:bg-gray-200 transition-colors">📄 PDF</button>
+                 <button id="excel-btn" class="flex-1 text-sm text-gray-700 font-medium py-2 px-3 rounded-md hover:bg-gray-200 transition-colors">📊 Excel</button>
+            </div>
+
+            <div id="task-form-container" class="bg-white rounded-lg shadow-lg p-4 mb-6">
+                <form id="task-form" class="space-y-4">
+                    <input type="text" id="task-input" placeholder="Add a new task..." class="w-full p-3 border-gray-300 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label for="priority-input" class="text-sm font-medium text-gray-600">Priority</label>
+                            <select id="priority-input" class="w-full p-3 mt-1 border-gray-300 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white">
+                                <option value="low">Low</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="deadline-input" class="text-sm font-medium text-gray-600">Deadline</label>
+                            <input type="date" id="deadline-input" class="w-full p-3 mt-1 border-gray-300 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                        </div>
+                        <div>
+                            <label for="image-input" class="text-sm font-medium text-gray-600">Image</label>
+                            <input type="file" id="image-input" accept="image/*" class="w-full text-sm mt-1 text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 text-white font-semibold px-6 py-3 rounded-md hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">Add Task</button>
+                </form>
+            </div>
+
+            <div id="task-list-container" class="bg-white rounded-lg shadow-lg p-4">
+                <ul id="task-list" class="space-y-3"></ul>
+                <p id="empty-message" class="text-center text-gray-400 p-4 hidden">Your to-do list is empty!</p>
+            </div>
+
+            <div id="history-section" class="mt-8">
+                <button id="history-toggle" class="w-full text-lg font-semibold text-gray-700 p-3 bg-white/80 backdrop-blur-sm rounded-lg shadow-sm hover:bg-gray-200 transition-colors">Show History (0)</button>
+                <div id="history-container" class="bg-white rounded-lg shadow-lg p-4 mt-4 hidden">
+                    <ul id="history-list" class="space-y-3"></ul>
+                     <p id="empty-history-message" class="text-center text-gray-400 p-4 hidden">No completed tasks yet.</p>
+                </div>
+            </div>
+
+             <footer class="text-center mt-8 py-4 text-gray-600 text-sm">
+                <p>Designed by Sebson Multimedia and IT Expert.</p>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Image Preview Modal -->
+    <div id="image-preview-modal" class="fixed inset-0 z-50 items-center justify-center hidden">
+        <img id="modal-img" src="" class="max-w-[90vw] max-h-[80vh] rounded-lg shadow-2xl">
+    </div>
+
+    <!-- Undo Toast -->
+    <div id="undo-toast" class="fixed bottom-0 right-0 m-8 p-4 bg-gray-800 text-white rounded-lg shadow-xl flex items-center gap-4 transform translate-y-24 opacity-0">
+        <span>Task deleted.</span>
+        <button id="undo-btn" class="font-semibold text-blue-400 hover:text-blue-300">Undo</button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const taskForm = document.getElementById('task-form');
+            const taskInput = document.getElementById('task-input');
+            const priorityInput = document.getElementById('priority-input');
+            const deadlineInput = document.getElementById('deadline-input');
+            const imageInput = document.getElementById('image-input');
+            const taskList = document.getElementById('task-list');
+            const emptyMessage = document.getElementById('empty-message');
+            const dateDisplay = document.getElementById('date-display');
+            
+            const historyToggle = document.getElementById('history-toggle');
+            const historyContainer = document.getElementById('history-container');
+            const historyList = document.getElementById('history-list');
+            const emptyHistoryMessage = document.getElementById('empty-history-message');
+
+            const printBtn = document.getElementById('print-btn');
+            const pdfBtn = document.getElementById('pdf-btn');
+            const excelBtn = document.getElementById('excel-btn');
+
+            const imagePreviewModal = document.getElementById('image-preview-modal');
+            const modalImg = document.getElementById('modal-img');
+
+            const undoToast = document.getElementById('undo-toast');
+            const undoBtn = document.getElementById('undo-btn');
+
+            let lastDeletedTask = null;
+            let undoTimeout = null;
+
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+            deadlineInput.min = todayStr;
+            dateDisplay.textContent = today.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            
+            const createTaskElement = (taskData, isHistory = false) => {
+                const { id, text, creationDate, deadline, priority, imageData, completed } = taskData;
+                const li = document.createElement('li');
+                li.className = `task-item flex items-center justify-between p-3 bg-gray-50/50 rounded-lg transition-all duration-300 priority-${priority}`;
+                li.dataset.id = id;
+                if (completed) li.classList.add('completed');
+
+                const taskContentWrapper = document.createElement('div');
+                taskContentWrapper.className = 'flex items-center flex-grow min-w-0';
+
+                const completeButton = document.createElement('button');
+                completeButton.className = 'complete-btn w-6 h-6 border-2 border-gray-300 rounded-full mr-4 transition-colors flex items-center justify-center flex-shrink-0';
+                
+                const textAndMetaWrapper = document.createElement('div');
+                textAndMetaWrapper.className = 'flex flex-col flex-grow min-w-0';
+
+                const taskSpan = document.createElement('span');
+                taskSpan.className = 'task-text truncate';
+                taskSpan.textContent = text;
+                
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'flex items-center flex-wrap gap-x-3 mt-1 date-meta';
+
+                if (imageData) {
+                    const imageIcon = document.createElement('span');
+                    imageIcon.className = 'image-icon cursor-pointer';
+                    imageIcon.textContent = '📷';
+                    imageIcon.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        modalImg.src = imageData;
+                        imagePreviewModal.classList.remove('hidden');
+                        imagePreviewModal.classList.add('flex');
+                    });
+                    metaDiv.appendChild(imageIcon);
+                }
+
+                const creationSpan = document.createElement('span');
+                creationSpan.textContent = `Created: ${new Date(creationDate).toLocaleDateString()}`;
+                metaDiv.appendChild(creationSpan);
+
+                if (deadline) {
+                    const deadlineSpan = document.createElement('span');
+                    const dueDate = new Date(deadline + 'T23:59:59');
+                    deadlineSpan.textContent = `Due: ${new Date(deadline + 'T00:00:00').toLocaleDateString()}`;
+                    if (!completed && dueDate < today) {
+                        deadlineSpan.classList.add('deadline-overdue');
+                    }
+                    metaDiv.appendChild(deadlineSpan);
+                }
+                
+                textAndMetaWrapper.appendChild(taskSpan);
+                textAndMetaWrapper.appendChild(metaDiv);
+
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'delete-btn text-gray-400 hover:text-red-500 font-bold transition-colors ml-4 flex-shrink-0';
+                deleteButton.innerHTML = '&#x2715;';
+                
+                completeButton.addEventListener('click', () => {
+                    taskData.completed = !taskData.completed;
+                    const targetList = taskData.completed ? historyList : taskList;
+                    li.remove();
+                    targetList.appendChild(createTaskElement(taskData, taskData.completed));
+                    updateUI();
+                });
+                
+                deleteButton.addEventListener('click', () => {
+                    lastDeletedTask = { element: li, data: taskData, parent: li.parentElement };
+                    li.remove();
+                    updateUI();
+                    
+                    undoToast.classList.remove('translate-y-24', 'opacity-0');
+                    clearTimeout(undoTimeout);
+                    undoTimeout = setTimeout(() => {
+                        undoToast.classList.add('translate-y-24', 'opacity-0');
+                        lastDeletedTask = null;
+                    }, 5000);
+                });
+
+                taskContentWrapper.appendChild(completeButton);
+                taskContentWrapper.appendChild(textAndMetaWrapper);
+                li.appendChild(taskContentWrapper);
+                li.appendChild(deleteButton);
+                
+                return li;
+            };
+
+            taskForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const taskText = taskInput.value.trim();
+                if (taskText === '') return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const taskData = {
+                        id: Date.now(),
+                        text: taskText,
+                        priority: priorityInput.value,
+                        creationDate: new Date().toISOString(),
+                        deadline: deadlineInput.value,
+                        imageData: event.target.result,
+                        completed: false,
+                    };
+                    taskList.appendChild(createTaskElement(taskData));
+                    updateUI();
+                    taskForm.reset();
+                };
+
+                if (imageInput.files[0]) {
+                    reader.readAsDataURL(imageInput.files[0]);
+                } else {
+                    reader.onload({ target: { result: null } });
+                }
+            });
+
+            const updateUI = () => {
+                emptyMessage.classList.toggle('hidden', taskList.children.length > 0);
+                emptyHistoryMessage.classList.toggle('hidden', historyList.children.length > 0);
+                historyToggle.textContent = `Show History (${historyList.children.length})`;
+            };
+            
+            const loadInitialTasks = () => {
+                [
+                    { id: 1, text: 'Finish project proposal', priority: 'high', creationDate: new Date('2025-06-28T10:00:00Z').toISOString(), deadline: '2025-07-05', imageData: null, completed: false },
+                    { id: 2, text: 'Buy groceries', priority: 'medium', creationDate: new Date('2025-06-27T15:00:00Z').toISOString(), deadline: '2025-06-28', imageData: null, completed: true },
+                    { id: 3, text: 'Schedule dentist appointment', priority: 'low', creationDate: new Date('2025-06-29T11:00:00Z').toISOString(), deadline: '', imageData: null, completed: false }
+                ].forEach(taskData => {
+                    const list = taskData.completed ? historyList : taskList;
+                    list.appendChild(createTaskElement(taskData, taskData.completed));
+                });
+                updateUI();
+            };
+
+            historyToggle.addEventListener('click', () => historyContainer.classList.toggle('hidden'));
+            imagePreviewModal.addEventListener('click', () => imagePreviewModal.classList.add('hidden'));
+            
+            undoBtn.addEventListener('click', () => {
+                if (lastDeletedTask) {
+                    lastDeletedTask.parent.appendChild(createTaskElement(lastDeletedTask.data, lastDeletedTask.data.completed));
+                    updateUI();
+                    lastDeletedTask = null;
+                    clearTimeout(undoTimeout);
+                    undoToast.classList.add('translate-y-24', 'opacity-0');
+                }
+            });
+
+            // --- EXPORT LOGIC ---
+            printBtn.addEventListener('click', () => window.print());
+
+            pdfBtn.addEventListener('click', () => {
+                const { jsPDF } = window.jspdf;
+                const activeTasks = document.getElementById('task-list-container');
+                html2canvas(activeTasks, { scale: 2, backgroundColor: null }).then(canvas => {
+                    const imgData = canvas.toDataURL('image/png');
+                    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const imgProps = pdf.getImageProperties(imgData);
+                    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                    pdf.addImage(imgData, 'PNG', 10, 10, pdfWidth - 20, pdfHeight - 20);
+                    pdf.save('todo-list.pdf');
+                });
+            });
+
+            excelBtn.addEventListener('click', () => {
+                const wb = XLSX.utils.book_new();
+                const tasks = [...document.querySelectorAll('#task-list .task-item'), ...document.querySelectorAll('#history-list .task-item')];
+                const data = tasks.map(task => {
+                    const taskData = task.querySelector('.task-text').textContent;
+                    const priority = task.classList.contains('priority-high') ? 'High' : task.classList.contains('priority-medium') ? 'Medium' : 'Low';
+                    const status = task.classList.contains('completed') ? 'Completed' : 'Pending';
+                    const meta = [...task.querySelectorAll('.date-meta span')].map(s => s.textContent).join(' | ');
+                    const creationDate = meta.match(/Created: (.*)/) ? meta.match(/Created: (.*)/)[1].split(' |')[0] : '';
+                    const deadline = meta.match(/Due: (.*)/) ? meta.match(/Due: (.*)/)[1] : 'N/A';
+                    return { Task: taskData, Priority: priority, Status: status, "Creation Date": creationDate, Deadline: deadline };
+                });
+
+                const ws = XLSX.utils.json_to_sheet(data);
+                
+                const priorityColors = {
+                    High: { font: { color: { rgb: "991B1B" } }, fill: { fgColor: { rgb: "FEE2E2" } } },
+                    Medium: { font: { color: { rgb: "9A3412" } }, fill: { fgColor: { rgb: "FEF3C7" } } },
+                    Low: { font: { color: { rgb: "1D4ED8" } }, fill: { fgColor: { rgb: "DBEAFE" } } }
+                };
+
+                data.forEach((row, index) => {
+                    const cellRef = XLSX.utils.encode_cell({ r: index + 1, c: 1 }); // Priority is the 2nd column (index 1)
+                    if (ws[cellRef] && priorityColors[row.Priority]) {
+                        ws[cellRef].s = priorityColors[row.Priority];
+                    }
+                });
+                
+                ws['!cols'] = [{wch:50}, {wch:15}, {wch:15}, {wch:15}, {wch:15}];
+
+                XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+                XLSX.writeFile(wb, "todo-list.xlsx");
+            });
+
+            loadInitialTasks();
+        });
+    </script>
+</body>
+</html>
